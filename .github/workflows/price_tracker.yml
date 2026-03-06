@@ -33,11 +33,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Write products list from secret
-        env:
-          PRODUCTS_LIST: ${{ secrets.PRODUCTS_LIST }}
-        run: echo "$PRODUCTS_LIST" > products.txt
-
       - name: Run price checker
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}

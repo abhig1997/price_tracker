@@ -65,7 +65,33 @@ FALLBACK_SELECTORS = [
     ".price-box",
     ".offer-price",
     ".sale-price",
+    ".price__current",
+    ".product__price",
+    "[data-product-price]",
+    ".price-item",
+    ".woocommerce-Price-amount",
 ]
+
+# Returned by detect_selector when structured data gives a price directly (no DOM element)
+STRUCTURED_DATA_SENTINEL = "__structured_data__"
+
+# Shopify theme CSS selectors (Dawn and common third-party themes)
+SHOPIFY_SELECTORS = [
+    ".price__current",
+    ".price-item--regular",
+    ".product__price",
+    "[data-product-price]",
+    ".money",
+]
+
+# WooCommerce CSS selectors
+WOOCOMMERCE_SELECTORS = [
+    "p.price ins .woocommerce-Price-amount bdi",
+    "p.price .woocommerce-Price-amount bdi",
+    ".summary .price .amount",
+]
+
+MAX_PLAUSIBLE_PRICE = 50_000
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -138,22 +164,259 @@ def fetch_page(url: str):
     return soup, title
 
 
+def _try_json_ld(soup: BeautifulSoup) -> float | None:
+    """Extract price from JSON-LD structured data (schema.org Product/Offer)."""
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        # Unwrap @graph arrays
+        nodes = data if isinstance(data, list) else data.get("@graph", [data])
+
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            types = node.get("@type", "")
+            if isinstance(types, str):
+                types = [types]
+
+            # Handle Offer nodes directly
+            if "Offer" in types:
+                price = node.get("price") or node.get("lowPrice")
+                if price is not None:
+                    try:
+                        val = float(price)
+                        if val > 0:
+                            return val
+                    except (ValueError, TypeError):
+                        pass
+
+            # Handle Product nodes — dive into offers
+            if "Product" in types:
+                offers = node.get("offers", {})
+                if isinstance(offers, dict):
+                    offers = [offers]
+                for offer in offers if isinstance(offers, list) else []:
+                    price = offer.get("price") or offer.get("lowPrice")
+                    if price is not None:
+                        try:
+                            val = float(price)
+                            if val > 0:
+                                return val
+                        except (ValueError, TypeError):
+                            pass
+
+    return None
+
+
+def _try_og_meta(soup: BeautifulSoup) -> float | None:
+    """Extract price from Open Graph / Facebook meta tags."""
+    for prop in ("og:price:amount", "product:price:amount"):
+        tag = soup.find("meta", {"property": prop})
+        if tag and tag.get("content"):
+            raw = tag["content"].strip()
+            # Handle European decimal comma: "49,00" → "49.00"
+            if "," in raw and "." not in raw and len(raw.split(",")[-1]) <= 2:
+                raw = raw.replace(",", ".")
+            try:
+                val = float(raw.replace(",", ""))
+                if val > 0:
+                    return val
+            except ValueError:
+                pass
+    return None
+
+
+def _try_microdata_content(soup: BeautifulSoup) -> float | None:
+    """Extract price from microdata itemprop='price', preferring the content attribute."""
+    for el in soup.select("[itemprop='price']"):
+        raw = el.get("content") or el.get_text(strip=True)
+        if not raw:
+            continue
+        cleaned = raw.replace("$", "").replace(",", "").replace("£", "").replace("€", "").strip()
+        match = re.search(r"\d+(?:\.\d+)?", cleaned)
+        if match:
+            try:
+                val = float(match.group())
+                if val > 0:
+                    return val
+            except ValueError:
+                pass
+    return None
+
+
+def _detect_platform(soup: BeautifulSoup) -> str | None:
+    """Return 'shopify', 'woocommerce', or None based on page fingerprints."""
+    # Shopify: check script text or asset URLs
+    for script in soup.find_all("script"):
+        src = script.get("src", "")
+        if "cdn.shopify.com" in src:
+            return "shopify"
+        if script.string and "Shopify" in script.string:
+            return "shopify"
+    for link in soup.find_all("link", href=True):
+        if "cdn.shopify.com" in link["href"]:
+            return "shopify"
+
+    # WooCommerce: body class or plugin path in any attribute
+    body = soup.find("body")
+    if body:
+        body_classes = " ".join(body.get("class", []))
+        if "woocommerce" in body_classes:
+            return "woocommerce"
+    for tag in soup.find_all(True):
+        for attr_val in tag.attrs.values():
+            if isinstance(attr_val, str) and "/woocommerce/" in attr_val:
+                return "woocommerce"
+
+    return None
+
+
+def _try_platform_selectors(soup: BeautifulSoup) -> str | None:
+    """Try platform-specific CSS selectors after fingerprinting the platform."""
+    platform = _detect_platform(soup)
+    if platform == "shopify":
+        selectors = SHOPIFY_SELECTORS
+    elif platform == "woocommerce":
+        selectors = WOOCOMMERCE_SELECTORS
+    else:
+        return None
+
+    for selector in selectors:
+        if soup.select_one(selector):
+            return selector
+    return None
+
+
+def _try_text_scan(soup: BeautifulSoup) -> float | None:
+    """
+    Last-resort heuristic: scan visible text for price-like patterns and score candidates.
+    Excludes navigation/chrome elements to reduce false positives.
+    """
+    # Tags whose content we skip entirely
+    skip_tags = {"header", "footer", "nav", "aside", "script", "style", "noscript"}
+
+    price_pattern = re.compile(r'[$£€]\s*(\d{1,6}(?:[.,]\d{2})?)')
+
+    candidates: list[tuple[float, int]] = []  # (price, score)
+
+    for el in soup.find_all(string=price_pattern):
+        # Skip if inside a blocked ancestor
+        if any(p.name in skip_tags for p in el.parents):
+            continue
+
+        match = price_pattern.search(el)
+        if not match:
+            continue
+
+        raw_num = match.group(1).replace(",", "")
+        try:
+            price = float(raw_num)
+        except ValueError:
+            continue
+
+        if price <= 0 or price > MAX_PLAUSIBLE_PRICE:
+            continue
+
+        score = 0
+        parent = el.parent
+
+        # Score based on element context
+        for ancestor in [parent] + list(parent.parents)[:3]:
+            if not hasattr(ancestor, "get"):
+                continue
+            cls = " ".join(ancestor.get("class", []))
+            aid = ancestor.get("id", "")
+            combined = (cls + " " + aid).lower()
+            if any(w in combined for w in ("price", "cost", "offer", "sale")):
+                score += 3
+                break
+
+        # Bonus for being inside <main>
+        if any(getattr(p, "name", "") == "main" for p in el.parents):
+            score += 1
+
+        # Penalty for strikethrough (old price)
+        if any(getattr(p, "name", "") == "del" for p in el.parents):
+            score -= 2
+
+        # Penalty for <small>
+        if any(getattr(p, "name", "") == "small" for p in el.parents):
+            score -= 1
+
+        # Bonus for nearby "Add to Cart" / "Buy" text
+        if parent:
+            nearby_text = parent.get_text(" ", strip=True).lower()
+            if "add to cart" in nearby_text or "buy now" in nearby_text:
+                score += 2
+
+        candidates.append((price, score))
+
+    if not candidates:
+        return None
+
+    best_price, _ = max(candidates, key=lambda c: c[1])
+    return best_price
+
+
 def detect_selector(soup: BeautifulSoup, domain: str) -> str | None:
-    """Return the best price CSS selector for this page, or None if not found."""
+    """Return the best price CSS selector for this page, or None if not found.
+
+    Returns a CSS selector string, STRUCTURED_DATA_SENTINEL if a price was found
+    via structured data (JSON-LD, OG meta, microdata, or text scan), or None if
+    no price could be detected.
+    """
+    # 1. Known-site selectors
     for known_domain, selector in KNOWN_SELECTORS.items():
         if known_domain in domain:
             if soup.select_one(selector):
                 return selector
 
+    # 2. JSON-LD structured data (most reliable — covers Shopify, WooCommerce, etc.)
+    if _try_json_ld(soup) is not None:
+        return STRUCTURED_DATA_SENTINEL
+
+    # 3. Open Graph / Facebook price meta tags
+    if _try_og_meta(soup) is not None:
+        return STRUCTURED_DATA_SENTINEL
+
+    # 4. Microdata itemprop="price" (reads content attribute, more reliable than CSS)
+    if _try_microdata_content(soup) is not None:
+        return STRUCTURED_DATA_SENTINEL
+
+    # 5. Platform-specific CSS selectors (Shopify themes, WooCommerce)
+    selector = _try_platform_selectors(soup)
+    if selector:
+        return selector
+
+    # 6. Generic CSS fallbacks
     for selector in FALLBACK_SELECTORS:
         if soup.select_one(selector):
             return selector
+
+    # 7. Last-resort text scan
+    if _try_text_scan(soup) is not None:
+        return STRUCTURED_DATA_SENTINEL
 
     return None
 
 
 def extract_price(soup: BeautifulSoup, selector: str) -> float | None:
-    """Extract and parse a numeric price from the given CSS selector."""
+    """Extract and parse a numeric price from the given CSS selector.
+
+    If selector is STRUCTURED_DATA_SENTINEL, re-runs the structured data chain
+    instead of querying the DOM (since there is no element to select).
+    """
+    if selector == STRUCTURED_DATA_SENTINEL:
+        return (
+            _try_json_ld(soup)
+            or _try_og_meta(soup)
+            or _try_microdata_content(soup)
+            or _try_text_scan(soup)
+        )
+
     el = soup.select_one(selector)
     if not el:
         print(f"  [WARN] Selector '{selector}' not found on page.")
@@ -173,14 +436,11 @@ def extract_price(soup: BeautifulSoup, selector: str) -> float | None:
 
 def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
     """
-    Merge the user's products.txt (source of truth for URLs + thresholds) with
-    the internal store (cache of auto-detected name + selector).
+    Merge products.txt (source of truth for URLs + thresholds) with the
+    selector cache (products.json). For new products, fetches the page once
+    to detect the price selector.
 
-    New products are fetched once to detect name and price selector.
-    Removed products are dropped. Thresholds always follow products.txt.
-
-    URLs are never written to products.json — only the id (URL hash), name,
-    and price_selector are stored, keeping that file public-safe.
+    Only id and price_selector are stored — no names or URLs.
     """
     stored_by_id = {p["id"]: p for p in stored}
     result = []
@@ -191,28 +451,25 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
 
         product = {
             "id": pid,
-            "url": tp["url"],        # runtime only — never saved to products.json
-            "threshold": tp["threshold"],  # runtime only — comes from products.txt
-            "name": cached.get("name"),
+            "url": tp["url"],
+            "threshold": tp["threshold"],
             "price_selector": cached.get("price_selector"),
         }
 
-        # Only fetch the page for new products (missing name or selector)
-        if not product["name"] or not product["price_selector"]:
-            print(f"\nNew product detected — fetching info: {tp['url']}")
-            soup, title = fetch_page(tp["url"])
-            if soup:
-                if not product["name"]:
-                    product["name"] = title
-                    print(f"  Name: {title}")
-                if not product["price_selector"]:
-                    sel = detect_selector(soup, get_domain(tp["url"]))
-                    if sel:
-                        product["price_selector"] = sel
-                        print(f"  Selector: {sel}")
-                    else:
-                        print(f"  [WARN] Could not auto-detect price selector.")
-                        print(f"         Add 'price_selector' manually to products.json for this product.")
+        if not product["price_selector"]:
+            print(f"\nNew product — detecting price selector: {tp['url']}")
+            soup, _ = fetch_page(tp["url"])
+            if soup is None:
+                product["_fetch_failed"] = True
+            else:
+                sel = detect_selector(soup, get_domain(tp["url"]))
+                if sel:
+                    product["price_selector"] = sel
+                    print(f"  Selector: {sel}")
+                else:
+                    product["_detection_failed"] = True
+                    print(f"  [WARN] Could not auto-detect price selector.")
+                    print(f"         Add it manually: {{\"id\": \"{pid}\", \"price_selector\": \"...\"}} in products.json.")
 
         result.append(product)
 
@@ -220,9 +477,9 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
 
 
 def products_for_storage(products: list[dict]) -> list[dict]:
-    """Strip runtime-only fields before saving to products.json."""
+    """Only id and price_selector — no identifying information."""
     return [
-        {"id": p["id"], "name": p["name"], "price_selector": p["price_selector"]}
+        {"id": p["id"], "price_selector": p["price_selector"]}
         for p in products
     ]
 
@@ -280,8 +537,17 @@ def main():
     products = sync_products(txt_products, stored)
     save_json(PRODUCTS_FILE, products_for_storage(products))
 
-    # 3. Load history + email config
+    # 3. Prune history for products no longer in products.txt
+    active_ids = {p["id"] for p in products}
     history = load_json(HISTORY_FILE, {})
+    removed_ids = [pid for pid in history if pid not in active_ids]
+    for pid in removed_ids:
+        del history[pid]
+    if removed_ids:
+        save_json(HISTORY_FILE, history)
+        print(f"Removed history for {len(removed_ids)} deleted product(s).")
+
+    # 4. Load email config
     email_cfg = {
         "gmail_user": os.environ.get("GMAIL_USER", ""),
         "gmail_app_password": os.environ.get("GMAIL_APP_PASSWORD", ""),
@@ -293,22 +559,25 @@ def main():
 
     for product in products:
         pid = product["id"]
-        name = product["name"] or product["url"]
         url = product["url"]
         selector = product["price_selector"]
         threshold = product["threshold"]
 
-        print(f"\nChecking: {name}")
+        print(f"\nChecking: {url}")
 
         if not selector:
-            print("  [SKIP] No price selector found — add 'price_selector' manually to products.json.")
+            if product.get("_fetch_failed"):
+                print("  [SKIP] Site blocked or unreachable — could not detect price selector.")
+            else:
+                print("  [SKIP] Could not detect price selector — add 'price_selector' manually to products.json.")
             continue
 
-        soup, _ = fetch_page(url)
+        soup, title = fetch_page(url)
         if soup is None:
             print("  Skipping — could not fetch page.")
             continue
 
+        name = title or url  # used for display and email only, never stored
         price = extract_price(soup, selector)
         if price is None:
             print("  Skipping — could not retrieve price.")
