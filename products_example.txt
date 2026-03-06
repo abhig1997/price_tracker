@@ -1,0 +1,16 @@
+# Product Price Tracker - edit this file to manage your tracked products
+#
+# Format:  url | threshold
+#
+# threshold can be:
+#   - a price number: alert when price drops AT OR BELOW this value (e.g. 79.99)
+#   - "any": alert on ANY price change (up or down)
+#
+# The tracker auto-detects the product name and price selector for known sites.
+# Unknown sites may need a price_selector added manually in products.json.
+#
+# Examples:
+#   https://www.amazon.com/dp/B0XXXXXXXX | 79.99
+#   https://www.bestbuy.com/site/some-product/123456.p | any
+#   https://www.walmart.com/ip/some-product/123456 | 299.00
+

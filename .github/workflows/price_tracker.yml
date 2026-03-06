@@ -1,0 +1,55 @@
+name: Price Tracker
+
+on:
+  schedule:
+    # Runs every Monday at 9am UTC — adjust as needed (cron syntax)
+    # Examples:
+    #   every hour:        "0 * * * *"
+    #   every 6 hours:     "0 */6 * * *"
+    #   once a day at 9am: "0 9 * * *"
+    #   every Monday 9am:  "0 9 * * 1"
+    - cron: "0 9 * * 1"
+
+  # Allows you to trigger a run manually from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  check-prices:
+    runs-on: ubuntu-latest
+
+    # Give the job write access so it can commit price_history.json back to the repo
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write products list from secret
+        env:
+          PRODUCTS_LIST: ${{ secrets.PRODUCTS_LIST }}
+        run: echo "$PRODUCTS_LIST" > products.txt
+
+      - name: Run price checker
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+        run: python check_prices.py
+
+      - name: Commit updated data files
+        run: |
+          git config user.name "price-tracker-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add price_history.json products.json
+          # Only commit if something actually changed
+          git diff --cached --quiet || git commit -m "chore: update price data [skip ci]"
+          git push

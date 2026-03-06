@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Windows .venv things
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+
+# Use products_example.txt as a starting point
+products.txt
+products.json
+
+.claude/
