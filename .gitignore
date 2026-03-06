@@ -15,6 +15,8 @@ pyvenv.cfg
 .claude/
 
 products.txt
+products.json
+price_history.json
 
 # UI
 ui/node_modules/

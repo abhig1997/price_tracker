@@ -38,6 +38,7 @@ class TestGetProducts:
         assert data[0]["threshold"] == 49.99
         assert data[0]["current_price"] is None
         assert data[0]["selector_status"] == "unknown"
+        assert data[0]["image_url"] is None  # no stored image
 
 
 # ── POST /api/products ─────────────────────────────────────────────────────────
@@ -136,6 +137,35 @@ class TestGetHistory:
         data = resp.get_json()
         assert url in data
         assert data[url][0]["price"] == 42.0
+
+
+
+# ── GET /api/image/<pid> ───────────────────────────────────────────────────────
+
+class TestProxyImage:
+    def test_unknown_pid_returns_404(self, client):
+        resp = client.get("/api/image/doesnotexist")
+        assert resp.status_code == 404
+
+    def test_pid_without_image_returns_404(self, client, tmp_path, monkeypatch):
+        pid = srv.url_to_id("https://example.com/p")
+        stored = [{"id": pid, "price_selector": ".price", "image_url": None}]
+        (tmp_path / "products.json").write_text(json.dumps(stored))
+        resp = client.get(f"/api/image/{pid}")
+        assert resp.status_code == 404
+
+    def test_image_url_in_products_response_is_opaque(self, client, tmp_path, monkeypatch):
+        url = "https://example.com/item"
+        pid = srv.url_to_id(url)
+        (tmp_path / "products.txt").write_text(f"{url} | 50\n")
+        stored = [{"id": pid, "price_selector": ".price", "image_url": "https://cdn.example.com/real-product-image.jpg"}]
+        (tmp_path / "products.json").write_text(json.dumps(stored))
+
+        resp = client.get("/api/products")
+        data = resp.get_json()
+        assert data[0]["image_url"] == f"/api/image/{pid}"
+        assert "cdn.example.com" not in data[0]["image_url"]
+
 
     def test_excludes_orphaned_history(self, client, tmp_path, monkeypatch):
         """History entries for removed products should not appear."""

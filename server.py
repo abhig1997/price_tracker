@@ -13,7 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+import requests
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 ROOT = Path(__file__).parent
 PRODUCTS_TXT = ROOT / "products.txt"
@@ -102,7 +103,7 @@ def build_products_response() -> list[dict]:
             "current_price": latest["price"] if latest else None,
             "last_checked": latest["timestamp"] if latest else None,
             "selector_status": "detected" if stored_entry.get("price_selector") else "unknown",
-            "image_url": stored_entry.get("image_url"),
+            "image_url": f"/api/image/{pid}" if stored_entry.get("image_url") else None,
         })
 
     return result
@@ -206,6 +207,22 @@ def run_check():
         return jsonify({"ok": False, "output": "Timed out after 120 seconds."}), 504
     except Exception as e:
         return jsonify({"ok": False, "output": str(e)}), 500
+
+
+@app.route("/api/image/<pid>")
+def proxy_image(pid):
+    stored = load_json(PRODUCTS_FILE, [])
+    entry = next((p for p in stored if p.get("id") == pid), None)
+    if not entry or not entry.get("image_url"):
+        return "", 404
+
+    try:
+        r = requests.get(entry["image_url"], timeout=10, stream=True)
+        r.raise_for_status()
+        content_type = r.headers.get("Content-Type", "image/jpeg")
+        return Response(r.content, content_type=content_type)
+    except Exception:
+        return "", 502
 
 
 # ── Static file serving ────────────────────────────────────────────────────────
