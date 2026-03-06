@@ -1,10 +1,17 @@
 [
   {
     "id": "d96df438d546",
-    "price_selector": "__structured_data__"
+    "price_selector": "__structured_data__",
+    "image_url": "https://cdn.shopify.com/s/files/1/0123/5065/2473/files/MF_BM11049.582HOA_FIELD-SPECCOTTONHEAVYTEE_1_1024x.jpg?v=1696015125"
   },
   {
     "id": "51145e1dd3a2",
-    "price_selector": "__structured_data__"
+    "price_selector": "__structured_data__",
+    "image_url": "https://images.asket.com/product-images/109_RZm2a7vDIwjAKs2R-asket_fjt-ma-dkn_thumbnail-original.jpg?auto=format&q=80&w=1200&h=630"
+  },
+  {
+    "id": "2ba580a2b2c9",
+    "price_selector": "__structured_data__",
+    "image_url": null
   }
 ]

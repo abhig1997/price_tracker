@@ -1,6 +1,6 @@
 # price-tracker
 
-A self-hosted price tracker that runs on GitHub Actions and sends email alerts when a product hits your target price.
+A self-hosted price tracker that runs on GitHub Actions and sends email alerts when a product hits your target price. Includes a local web UI for managing products and viewing price history charts.
 
 ---
 
@@ -48,16 +48,45 @@ If prompted, enable GitHub Actions on your fork. Then trigger a manual run from 
 
 ---
 
-## Running locally
+## Web UI
 
-To test without GitHub Actions:
+A local web UI lets you manage your tracked products and view price history charts without editing files manually. It requires [Node.js](https://nodejs.org) in addition to Python.
+
+**First-time setup:**
+
+```bash
+pip install -r requirements.txt
+cd ui && npm install && npm run build && cd ..
+```
+
+**Start the UI:**
+
+```bash
+python server.py
+```
+
+Then open [http://localhost:5000](http://localhost:5000).
+
+From the UI you can:
+- Add and remove tracked products
+- See current price, target, and last checked date for each product
+- View a price history chart per product with a threshold reference line
+- Trigger a price check run on demand and see the live output
+
+For active development with hot reload, run `python server.py` and `cd ui && npm run dev` in separate terminals and open [http://localhost:5173](http://localhost:5173).
+
+---
+
+## Running the checker locally
+
+To run a price check without the UI:
 
 ```bash
 pip install -r requirements.txt
 python check_prices.py
 ```
 
-Email alerts are skipped if the Gmail env vars are not set — prices will just be printed to the console, which is useful for testing:
+Email alerts are skipped if the Gmail env vars are not set — prices are printed to the console instead, which is useful for testing:
 
 ```bash
 export GMAIL_USER="you@gmail.com"
@@ -106,9 +135,11 @@ Edit the cron expression in `.github/workflows/price_tracker.yml`. The default i
 ```
 products_example.txt          template — copy to products.txt to get started
 products.txt                  your URLs and thresholds (gitignored — stays private)
-products.json                 auto-managed: URL hashes and detected selectors
+products.json                 auto-managed: URL hashes, detected selectors, cached images
 price_history.json            auto-managed: price history with timestamps
 check_prices.py               the scraper and alert logic
+server.py                     local web server for the UI
+ui/                           React frontend (requires npm)
 .github/workflows/
   price_tracker.yml           the Actions workflow
 ```
@@ -117,5 +148,4 @@ check_prices.py               the scraper and alert logic
 
 ## Roadmap
 
-- Web UI for managing products and viewing price history charts
 - Additional notification targets (Slack, Discord, SMS)
