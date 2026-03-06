@@ -164,6 +164,14 @@ def fetch_page(url: str):
     return soup, title
 
 
+def _get_og_image(soup: BeautifulSoup) -> str | None:
+    """Extract the og:image URL from a page's Open Graph meta tags."""
+    tag = soup.find("meta", {"property": "og:image"})
+    if tag and tag.get("content"):
+        return tag["content"].strip()
+    return None
+
+
 def _try_json_ld(soup: BeautifulSoup) -> float | None:
     """Extract price from JSON-LD structured data (schema.org Product/Offer)."""
     for script in soup.find_all("script", type="application/ld+json"):
@@ -454,6 +462,7 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
             "url": tp["url"],
             "threshold": tp["threshold"],
             "price_selector": cached.get("price_selector"),
+            "image_url": cached.get("image_url"),
         }
 
         if not product["price_selector"]:
@@ -470,6 +479,8 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
                     product["_detection_failed"] = True
                     print(f"  [WARN] Could not auto-detect price selector.")
                     print(f"         Add it manually: {{\"id\": \"{pid}\", \"price_selector\": \"...\"}} in products.json.")
+                if not product["image_url"]:
+                    product["image_url"] = _get_og_image(soup)
 
         result.append(product)
 
@@ -477,9 +488,9 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
 
 
 def products_for_storage(products: list[dict]) -> list[dict]:
-    """Only id and price_selector — no identifying information."""
+    """Only id, price_selector, and image_url — no identifying information."""
     return [
-        {"id": p["id"], "price_selector": p["price_selector"]}
+        {"id": p["id"], "price_selector": p["price_selector"], "image_url": p.get("image_url")}
         for p in products
     ]
 
@@ -578,16 +589,28 @@ def main():
             continue
 
         name = title or url  # used for display and email only, never stored
+        if not product.get("image_url"):
+            product["image_url"] = _get_og_image(soup)
         price = extract_price(soup, selector)
         if price is None:
             print("  Skipping — could not retrieve price.")
             continue
 
-        # Record in history
+        # Record in history — only if price changed or last entry is over a week old
         prev_entries = history.get(pid, [])
         if pid not in history:
             history[pid] = []
-        history[pid].append({"timestamp": timestamp, "price": price})
+
+        should_record = True
+        if prev_entries:
+            last = prev_entries[-1]
+            last_time = datetime.fromisoformat(last["timestamp"].rstrip("Z"))
+            age_days = (datetime.utcnow() - last_time).days
+            if price == last["price"] and age_days < 7:
+                should_record = False
+
+        if should_record:
+            history[pid].append({"timestamp": timestamp, "price": price})
 
         # Alert logic
         if threshold == "any":
@@ -622,6 +645,7 @@ def main():
                 })
 
     save_json(HISTORY_FILE, history)
+    save_json(PRODUCTS_FILE, products_for_storage(products))
     print(f"\nHistory saved to {HISTORY_FILE}")
 
     if alerts and email_cfg["gmail_user"]:
