@@ -103,6 +103,7 @@ def build_products_response() -> list[dict]:
             "current_price": latest["price"] if latest else None,
             "last_checked": latest["timestamp"] if latest else None,
             "selector_status": "detected" if stored_entry.get("price_selector") else "unknown",
+            "price_selector": stored_entry.get("price_selector"),
             "image_url": f"/api/image/{pid}" if stored_entry.get("image_url") else None,
         })
 
@@ -140,6 +141,35 @@ def add_product():
     products.append({"url": url, "threshold": threshold})
     write_products_txt(products)
     return jsonify(build_products_response()), 201
+
+
+@app.route("/api/products", methods=["PATCH"])
+def update_product_selector():
+    data = request.get_json()
+    url = (data.get("url") or "").strip()
+    price_selector = (data.get("price_selector") or "").strip()
+
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+    if not price_selector:
+        return jsonify({"error": "price_selector is required"}), 400
+
+    products = parse_products_txt()
+    if not any(p["url"] == url for p in products):
+        return jsonify({"error": "URL not found"}), 404
+
+    pid = url_to_id(url)
+    stored = load_json(PRODUCTS_FILE, [])
+    entry = next((p for p in stored if p.get("id") == pid), None)
+    if entry:
+        entry["price_selector"] = price_selector
+    else:
+        stored.append({"id": pid, "price_selector": price_selector, "image_url": None})
+
+    with open(PRODUCTS_FILE, "w") as f:
+        json.dump(stored, f, indent=2)
+
+    return jsonify(build_products_response())
 
 
 @app.route("/api/products", methods=["DELETE"])

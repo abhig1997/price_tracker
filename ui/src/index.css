@@ -317,6 +317,90 @@ body {
   background: var(--bg);
 }
 
+/* Selector editor */
+.selector-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.selector-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.selector-note {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.selector-note-warn { color: var(--danger); }
+
+.selector-form {
+  display: flex;
+  gap: 6px;
+}
+
+.selector-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.selector-input:focus { border-color: var(--accent); }
+
+.selector-save-btn {
+  padding: 6px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.selector-save-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.selector-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.selector-feedback {
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.selector-feedback.ok { color: var(--success); }
+.selector-feedback.error { color: var(--danger); }
+
+.selector-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.selector-hint code {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 11px;
+  background: #f0f0ef;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
 /* Status message */
 .status-msg {
   text-align: center;

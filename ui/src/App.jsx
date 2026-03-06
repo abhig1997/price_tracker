@@ -85,7 +85,7 @@ export default function App() {
         {error && <p className="status-msg error">Error: {error}. Is the server running?</p>}
 
         {!loading && !error && (
-          <ProductList products={products} history={history} onDeleted={fetchAll} />
+          <ProductList products={products} history={history} onDeleted={fetchAll} onUpdated={fetchAll} />
         )}
       </main>
     </div>

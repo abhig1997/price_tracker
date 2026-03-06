@@ -140,6 +140,57 @@ class TestGetHistory:
 
 
 
+# ── PATCH /api/products ───────────────────────────────────────────────────────
+
+class TestUpdateProductSelector:
+    def test_set_selector(self, client):
+        client.post("/api/products", json={"url": "https://example.com/item", "threshold": 50})
+        resp = client.patch(
+            "/api/products",
+            json={"url": "https://example.com/item", "price_selector": ".price"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert any(p["price_selector"] == ".price" for p in data)
+
+    def test_selector_status_becomes_detected(self, client):
+        client.post("/api/products", json={"url": "https://example.com/item", "threshold": 50})
+        client.patch(
+            "/api/products",
+            json={"url": "https://example.com/item", "price_selector": ".price"},
+        )
+        resp = client.get("/api/products")
+        data = resp.get_json()
+        assert data[0]["selector_status"] == "detected"
+
+    def test_missing_url_returns_400(self, client):
+        resp = client.patch("/api/products", json={"price_selector": ".price"})
+        assert resp.status_code == 400
+
+    def test_missing_selector_returns_400(self, client):
+        resp = client.patch("/api/products", json={"url": "https://example.com/item"})
+        assert resp.status_code == 400
+
+    def test_unknown_url_returns_404(self, client):
+        resp = client.patch(
+            "/api/products",
+            json={"url": "https://example.com/nottracked", "price_selector": ".price"},
+        )
+        assert resp.status_code == 404
+
+    def test_updates_existing_selector(self, client, tmp_path, monkeypatch):
+        url = "https://example.com/item"
+        pid = srv.url_to_id(url)
+        (tmp_path / "products.txt").write_text(f"{url} | 50\n")
+        stored = [{"id": pid, "price_selector": ".old-price", "image_url": None}]
+        (tmp_path / "products.json").write_text(json.dumps(stored))
+
+        resp = client.patch("/api/products", json={"url": url, "price_selector": ".new-price"})
+        assert resp.status_code == 200
+        updated = json.loads((tmp_path / "products.json").read_text())
+        assert updated[0]["price_selector"] == ".new-price"
+
+
 # ── GET /api/image/<pid> ───────────────────────────────────────────────────────
 
 class TestProxyImage:

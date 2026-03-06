@@ -1,6 +1,8 @@
 import { useState } from "react";
 import PriceChart from "./PriceChart";
 
+const SENTINEL = "__structured_data__";
+
 function formatPrice(price) {
   if (price == null) return null;
   return `$${price.toFixed(2)}`;
@@ -25,7 +27,78 @@ function shortenUrl(url) {
   }
 }
 
-function ProductCard({ product, history, onDeleted }) {
+function SelectorEditor({ product, onUpdated }) {
+  const current = product.price_selector;
+  const [value, setValue] = useState(current === SENTINEL ? "" : (current || ""));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSave(e) {
+    e.preventDefault();
+    if (!value.trim()) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await fetch("/api/products", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: product.url, price_selector: value.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error || "Failed to save");
+      } else {
+        setSaved(true);
+        onUpdated();
+      }
+    } catch {
+      setError("Could not reach server");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="selector-section">
+      <p className="selector-label">
+        Price selector
+        {current === SENTINEL && (
+          <span className="selector-note"> — auto-detected (structured data)</span>
+        )}
+        {!current && (
+          <span className="selector-note selector-note-warn"> — not detected, enter manually</span>
+        )}
+      </p>
+      <form className="selector-form" onSubmit={handleSave}>
+        <input
+          className="selector-input"
+          type="text"
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setSaved(false); }}
+          placeholder={current === SENTINEL ? "Override auto-detection (optional)" : "e.g. .price or #product-price"}
+          spellCheck={false}
+        />
+        <button
+          className="selector-save-btn"
+          type="submit"
+          disabled={saving || !value.trim()}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </form>
+      {saved && <p className="selector-feedback ok">Saved.</p>}
+      {error && <p className="selector-feedback error">{error}</p>}
+      <p className="selector-hint">
+        To find the right selector: right-click the price on the product page → Inspect, then test in the browser console:{" "}
+        <code>document.querySelector('.your-selector')?.innerText</code>
+      </p>
+    </div>
+  );
+}
+
+function ProductCard({ product, history, onDeleted, onUpdated }) {
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -66,7 +139,7 @@ function ProductCard({ product, history, onDeleted }) {
           <span className={`status-pip ${product.selector_status}`} title={
             product.selector_status === "detected"
               ? "Price selector detected"
-              : "Price selector not yet detected — run the checker first"
+              : "Price selector not yet detected — expand to set manually"
           } />
         )}
 
@@ -123,17 +196,18 @@ function ProductCard({ product, history, onDeleted }) {
               threshold={product.threshold !== "any" ? Number(product.threshold) : null}
             />
           ) : (
-            <p className="status-msg" style={{ padding: "24px 0" }}>
-              No price history yet. Run <code>python check_prices.py</code> to record the first data point.
+            <p className="status-msg" style={{ padding: "16px 0 8px" }}>
+              No price history yet. Run the checker to record the first data point.
             </p>
           )}
+          <SelectorEditor product={product} onUpdated={onUpdated} />
         </div>
       )}
     </div>
   );
 }
 
-export default function ProductList({ products, history, onDeleted }) {
+export default function ProductList({ products, history, onDeleted, onUpdated }) {
   if (products.length === 0) {
     return (
       <p className="empty-state">
@@ -150,6 +224,7 @@ export default function ProductList({ products, history, onDeleted }) {
           product={p}
           history={history}
           onDeleted={onDeleted}
+          onUpdated={onUpdated}
         />
       ))}
     </div>
