@@ -1,99 +1,121 @@
 # price-tracker
 
-A self-hosted price tracker that runs on GitHub Actions and emails you when something drops. No accounts, no subscriptions, no third-party service holding your data.
+A self-hosted price tracker that runs on GitHub Actions and sends email alerts when a product hits your target price.
 
 ---
 
 ## How it works
 
-You keep a local `products.txt` with one `url | threshold` per line. The tracker runs every 6 hours on GitHub Actions, scrapes the price, and emails you if it hits your target. Price history accumulates in the repo over time so you have a record.
+Add product URLs to `products.txt` with a price threshold. On a schedule, GitHub Actions fetches each page, extracts the current price, and emails you if the threshold is met. Price history accumulates in the repo over time.
 
-For known retailers (Amazon, Best Buy, Walmart, etc.) it auto-detects the right price element. For anything else it tries a handful of common selectors, and falls back gracefully if it can't figure it out.
-
-The repo is designed to be public: your URLs live in a local file or GitHub Secret and are never committed. What does get committed is just price numbers and product names — nothing identifying.
+The tracker automatically detects prices on most sites without any configuration. For sites it can't parse automatically, it tells you exactly what to add to fix it.
 
 ---
 
 ## Setup
 
-**1. Fork this repo** (public is fine)
+**1. Fork this repo as private**
 
-**2. Create a Gmail App Password**
+**2. Add your products**
 
-Regular Gmail passwords don't work for SMTP. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), create one called "Price Tracker", and save the 16-character code.
+Copy `products_example.txt` to `products.txt`. Each line is a URL and a threshold separated by a pipe:
 
-**3. Add secrets** In the repo page, under Settings → Secrets and variables → Actions:
+```
+https://www.somestore.com/products/item | 79.99
+https://www.anotherstore.com/products/item | any
+```
 
-| Secret | What to put |
+- Use a number to alert when the price drops **at or below** that value
+- Use `any` to alert on **any price change** (up or down)
+
+**3. Create a Gmail App Password**
+
+Regular Gmail passwords don't work for SMTP. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), create an app password called "Price Tracker", and save the 16-character code.
+
+**4. Add repository secrets**
+
+In your fork, go to Settings → Secrets and variables → Actions → Repository secrets and add:
+
+| Secret | Value |
 |---|---|
-| `GMAIL_USER` | your Gmail address |
-| `GMAIL_APP_PASSWORD` | the 16-char app password |
-| `ALERT_TO` | where to send alerts (can be the same address) |
-| `PRODUCTS_LIST` | your products (see format below) |
+| `GMAIL_USER` | Your Gmail address |
+| `GMAIL_APP_PASSWORD` | The 16-character app password |
+| `ALERT_TO` | Address to send alerts to (can be the same as `GMAIL_USER`) |
 
-**4. Format your `PRODUCTS_LIST`**
+**5. Enable Actions and do a test run**
 
-Each line is a URL and a threshold, separated by a pipe:
-
-```
-https://www.amazon.com/dp/B0XXXXXXXX | 79.99
-https://www.bestbuy.com/site/some-product/123456.p | any
-```
-
-Use a number to alert when the price drops to or below that value. Use `any` to alert on any price movement at all.
-
-**5. Enable Actions** if prompted, then trigger a first run manually from the Actions tab to make sure everything works.
+If prompted, enable GitHub Actions on your fork. Then trigger a manual run from the Actions tab to confirm everything is working before relying on the schedule.
 
 ---
 
 ## Running locally
 
-Copy `products_example.txt` to `products.txt`, fill in your URLs, then:
+To test without GitHub Actions:
 
 ```bash
 pip install -r requirements.txt
+python check_prices.py
+```
+
+Email alerts are skipped if the Gmail env vars are not set — prices will just be printed to the console, which is useful for testing:
+
+```bash
 export GMAIL_USER="you@gmail.com"
 export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
 export ALERT_TO="you@gmail.com"
 python check_prices.py
 ```
 
-`products.txt` is gitignored, so it stays on your machine.
-
 ---
 
-## Supported sites
+## Site compatibility
 
-Auto-detected out of the box: Amazon, Best Buy, Walmart, Target, Newegg, eBay, Costco, B&H Photo, Micro Center, Adorama.
+The tracker works well on most independent and D2C brand sites. It runs a multi-step detection chain to find prices automatically:
 
-For anything else, it tries common selectors like `[itemprop="price"]`, `.price`, `#price`, etc. If that fails, you can add a `price_selector` manually to `products.json` for that entry.
+1. **JSON-LD structured data** — the most reliable method; works on virtually all Shopify stores, WooCommerce, Magento, and most D2C brand sites
+2. **Open Graph meta tags** — `og:price:amount` supported by many e-commerce platforms
+3. **Microdata** — `itemprop="price"` HTML attributes
+4. **Platform-specific CSS selectors** — Shopify and WooCommerce theme patterns
+5. **Generic CSS selectors** — common class/id patterns like `.price`, `[data-price]`, etc.
+6. **Text scan** — last resort; scans visible text for currency patterns and scores candidates by context
 
-Amazon note: Amazon blocks scrapers aggressively and will fail intermittently. [CamelCamelCamel](https://camelcamelcamel.com) is more reliable for Amazon specifically.
+**Sites known to block scraping:** Some large retailers (notably Amazon and Best Buy) use network-level bot protection that drops requests before any HTML is served. These sites cannot be scraped with this tool regardless of the URL or selector used. For those, use the retailer's own price alert feature, or a dedicated service like [Keepa](https://keepa.com) for Amazon.
 
----
+**If auto-detection fails:** The script will print a message telling you to add a `price_selector` manually to `products.json`. To find the right selector, open the product page in Chrome, right-click the price, choose Inspect, and identify the element. You can test a selector in the browser console:
 
-## Files
-
+```js
+document.querySelector('.your-selector')?.innerText
 ```
-products_example.txt        copy this to products.txt to get started
-products.txt                your URLs — gitignored, never committed
-products.json               auto-managed: name + selector cache (no URLs)
-price_history.json          auto-managed: full price log (no URLs)
-check_prices.py             the script
-.github/workflows/
-  price_tracker.yml         the Actions workflow
+
+Then add it to `products.json`:
+
+```json
+{ "id": "the-id-shown-in-the-output", "price_selector": ".your-selector" }
 ```
 
 ---
 
 ## Adjusting the schedule
 
-Edit the cron in `.github/workflows/price_tracker.yml`. Default is every 6 hours. GitHub Actions free tier gives you 2,000 minutes/month — even hourly runs use about 22 minutes/day, so you have plenty of headroom.
+Edit the cron expression in `.github/workflows/price_tracker.yml`. The default is once per week. GitHub Actions free tier includes 2,000 minutes/month — even hourly runs use roughly 22 minutes/day, well within the free allowance.
+
+---
+
+## Files
+
+```
+products_example.txt          template — copy to products.txt to get started
+products.txt                  your URLs and thresholds (gitignored — stays private)
+products.json                 auto-managed: URL hashes and detected selectors
+price_history.json            auto-managed: price history with timestamps
+check_prices.py               the scraper and alert logic
+.github/workflows/
+  price_tracker.yml           the Actions workflow
+```
 
 ---
 
 ## Roadmap
 
 - Web UI for managing products and viewing price history charts
-- More notification targets (Slack, Discord, SMS)
-- Expanding the known-site selector table
+- Additional notification targets (Slack, Discord, SMS)

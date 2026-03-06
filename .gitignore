@@ -12,8 +12,6 @@ Lib/
 Scripts/
 pyvenv.cfg
 
-# Use products_example.txt as a starting point
-products.txt
-products.json
-
 .claude/
+
+products.txt
