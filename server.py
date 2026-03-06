@@ -100,6 +100,7 @@ def build_products_response() -> list[dict]:
         result.append({
             "url": p["url"],
             "threshold": p["threshold"],
+            "name": stored_entry.get("name"),
             "current_price": latest["price"] if latest else None,
             "last_checked": latest["timestamp"] if latest else None,
             "selector_status": "detected" if stored_entry.get("price_selector") else "unknown",

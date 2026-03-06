@@ -152,8 +152,11 @@ function ProductCard({ product, history, onDeleted, onUpdated }) {
             onClick={(e) => e.stopPropagation()}
             title={product.url}
           >
-            {shortenUrl(product.url)}
+            {product.name || shortenUrl(product.url)}
           </a>
+          {product.name && (
+            <span className="product-url-secondary">{shortenUrl(product.url)}</span>
+          )}
           <div className="product-meta">
             <span className="meta-item">
               Target:{" "}

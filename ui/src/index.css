@@ -247,6 +247,16 @@ body {
 
 .product-url:hover { color: var(--accent); }
 
+.product-url-secondary {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
 .product-meta {
   display: flex;
   align-items: center;

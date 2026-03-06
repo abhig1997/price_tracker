@@ -9,6 +9,7 @@ from check_prices import (
     STRUCTURED_DATA_SENTINEL,
     _detect_platform,
     _get_og_image,
+    _get_product_name,
     _try_json_ld,
     _try_microdata_content,
     _try_og_meta,
@@ -222,6 +223,25 @@ class TestTryTextScan:
         assert _try_text_scan(soup(html)) is None
 
 
+# ── _get_product_name ─────────────────────────────────────────────────────────
+
+class TestGetProductName:
+    def test_prefers_og_title(self):
+        html = '<meta property="og:title" content="Cool Sneakers"><title>Cool Sneakers | Store</title>'
+        assert _get_product_name(soup(html)) == "Cool Sneakers"
+
+    def test_falls_back_to_page_title(self):
+        html = "<title>Product Page</title>"
+        assert _get_product_name(soup(html)) == "Product Page"
+
+    def test_no_title_returns_none(self):
+        assert _get_product_name(soup("<html></html>")) is None
+
+    def test_empty_og_title_falls_back_to_page_title(self):
+        html = '<meta property="og:title" content=""><title>Fallback Title</title>'
+        assert _get_product_name(soup(html)) == "Fallback Title"
+
+
 # ── _get_og_image ──────────────────────────────────────────────────────────────
 
 class TestGetOgImage:
@@ -292,16 +312,22 @@ class TestProductsForStorage:
                 "url": "https://example.com",
                 "threshold": 50.0,
                 "price_selector": ".price",
+                "name": "Cool Sneakers",
                 "image_url": "https://example.com/img.jpg",
                 "_fetch_failed": True,
             }
         ]
         result = products_for_storage(products)
         assert result == [
-            {"id": "abc123", "price_selector": ".price", "image_url": "https://example.com/img.jpg"}
+            {"id": "abc123", "price_selector": ".price", "name": "Cool Sneakers", "image_url": "https://example.com/img.jpg"}
         ]
 
     def test_image_url_none(self):
         products = [{"id": "abc123", "price_selector": ".price"}]
         result = products_for_storage(products)
         assert result[0]["image_url"] is None
+
+    def test_name_none_when_missing(self):
+        products = [{"id": "abc123", "price_selector": ".price"}]
+        result = products_for_storage(products)
+        assert result[0]["name"] is None

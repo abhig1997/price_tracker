@@ -172,6 +172,16 @@ def _get_og_image(soup: BeautifulSoup) -> str | None:
     return None
 
 
+def _get_product_name(soup: BeautifulSoup) -> str | None:
+    """Return the best available product name: og:title if set, else page <title>."""
+    tag = soup.find("meta", {"property": "og:title"})
+    if tag and tag.get("content"):
+        return tag["content"].strip() or None
+    if soup.title:
+        return soup.title.get_text(strip=True) or None
+    return None
+
+
 def _try_json_ld(soup: BeautifulSoup) -> float | None:
     """Extract price from JSON-LD structured data (schema.org Product/Offer)."""
     for script in soup.find_all("script", type="application/ld+json"):
@@ -448,7 +458,7 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
     selector cache (products.json). For new products, fetches the page once
     to detect the price selector.
 
-    Only id and price_selector are stored — no names or URLs.
+    Only id, price_selector, name, and image_url are stored — no raw URLs.
     """
     stored_by_id = {p["id"]: p for p in stored}
     result = []
@@ -463,6 +473,7 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
             "threshold": tp["threshold"],
             "price_selector": cached.get("price_selector"),
             "image_url": cached.get("image_url"),
+            "name": cached.get("name"),
         }
 
         if not product["price_selector"]:
@@ -481,6 +492,8 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
                     print(f"         Add it manually: {{\"id\": \"{pid}\", \"price_selector\": \"...\"}} in products.json.")
                 if not product["image_url"]:
                     product["image_url"] = _get_og_image(soup)
+                if not product["name"]:
+                    product["name"] = _get_product_name(soup)
 
         result.append(product)
 
@@ -488,9 +501,14 @@ def sync_products(txt_products: list[dict], stored: list[dict]) -> list[dict]:
 
 
 def products_for_storage(products: list[dict]) -> list[dict]:
-    """Only id, price_selector, and image_url — no identifying information."""
+    """Only id, price_selector, name, and image_url — no raw URLs."""
     return [
-        {"id": p["id"], "price_selector": p["price_selector"], "image_url": p.get("image_url")}
+        {
+            "id": p["id"],
+            "price_selector": p["price_selector"],
+            "name": p.get("name"),
+            "image_url": p.get("image_url"),
+        }
         for p in products
     ]
 
@@ -588,7 +606,9 @@ def main():
             print("  Skipping — could not fetch page.")
             continue
 
-        name = title or url  # used for display and email only, never stored
+        scraped_name = _get_product_name(soup) or title
+        name = scraped_name or url  # used for email subject line
+        product["name"] = scraped_name  # persist the latest scraped name
         if not product.get("image_url"):
             product["image_url"] = _get_og_image(soup)
         price = extract_price(soup, selector)
