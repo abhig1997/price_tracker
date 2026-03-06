@@ -655,4 +655,21 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--test-email" in sys.argv:
+        cfg = {
+            "gmail_user": os.environ.get("GMAIL_USER", ""),
+            "gmail_app_password": os.environ.get("GMAIL_APP_PASSWORD", ""),
+            "alert_to": os.environ.get("ALERT_TO", ""),
+        }
+        if not cfg["gmail_user"] or not cfg["gmail_app_password"]:
+            print("[ERROR] GMAIL_USER and GMAIL_APP_PASSWORD environment variables must be set.")
+            sys.exit(1)
+        print(f"Sending test email from {cfg['gmail_user']} to {cfg['alert_to'] or cfg['gmail_user']}...")
+        send_email_alert(cfg, [{
+            "name": "Test Product",
+            "url": "https://example.com/product",
+            "current_price": 49.99,
+            "threshold": 59.99,
+        }])
+    else:
+        main()

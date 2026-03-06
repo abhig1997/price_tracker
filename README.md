@@ -86,14 +86,18 @@ pip install -r requirements.txt
 python check_prices.py
 ```
 
-Email alerts are skipped if the Gmail env vars are not set — prices are printed to the console instead, which is useful for testing:
+Email alerts are skipped if the Gmail env vars are not set — prices are printed to the console instead, which is useful for testing.
+
+**To verify your email credentials work** before relying on real alerts, use the `--test-email` flag:
 
 ```bash
 export GMAIL_USER="you@gmail.com"
 export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
 export ALERT_TO="you@gmail.com"
-python check_prices.py
+python check_prices.py --test-email
 ```
+
+This sends a single dummy alert email immediately, without checking any products or needing a price threshold to be met. If you see `[OK] Alert email sent`, your credentials are working. If you get an authentication error, double-check that you used an App Password (not your regular Gmail password) and that it was entered without spaces.
 
 ---
 
@@ -134,9 +138,9 @@ Edit the cron expression in `.github/workflows/price_tracker.yml`. The default i
 
 ```
 products_example.txt          template — copy to products.txt to get started
-products.txt                  your URLs and thresholds (gitignored — stays private)
-products.json                 auto-managed: URL hashes, detected selectors, cached images
-price_history.json            auto-managed: price history with timestamps
+products.txt                  your URLs and thresholds (gitignored)
+products.json                 auto-managed: detected selectors and cached images (gitignored)
+price_history.json            auto-managed: price history with timestamps (gitignored)
 check_prices.py               the scraper and alert logic
 server.py                     local web server for the UI
 ui/                           React frontend (requires npm)
